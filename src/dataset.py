@@ -9,6 +9,8 @@ from torch.utils.data import Dataset
 from torchvision import datasets, transforms
 from torchvision.utils import save_image
 
+from PIL import Image
+
 
 def ensure_dir(path):
     Path(path).mkdir(parents=True, exist_ok=True)
@@ -113,3 +115,67 @@ def generate_stylised_stl10(
             styled_img = style_func(img)
             save_path = os.path.join(class_dir, f"{idx:05d}.png")
             save_image(styled_img, save_path)
+
+
+
+STYLE_TO_ID = {
+    "original": 0,
+    "sketch": 1,
+    "cartoon": 2,
+    "watercolor": 3,
+}
+
+class MultiStyleSTL10(Dataset):
+    def __init__(self, data_root="data",
+                 styles=("original", "sketch", "cartoon", "watercolor"),
+                 transform=None):
+        self.samples = []
+        self.transform = transform
+
+        for style in styles:
+            if style == "original":
+                style_dir = "stl10_original"
+            else:
+                style_dir = f"stl10_{style}"
+
+            style_path = os.path.join(data_root, style_dir)
+            style_id = STYLE_TO_ID[style]
+
+            if not os.path.isdir(style_path):
+                print(f"[WARN] Missing folder: {style_path}, skipping")
+                continue
+
+            # class folders: 0..9
+            for class_name in os.listdir(style_path):
+                class_dir = os.path.join(style_path, class_name)
+                if not os.path.isdir(class_dir):
+                    continue
+                label = int(class_name)
+
+                for fname in os.listdir(class_dir):
+                    if not fname.endswith(".png"):
+                        continue
+                    self.samples.append({
+                        "path": os.path.join(class_dir, fname),
+                        "label": label,
+                        "style": style_id,
+                    })
+
+        print(f"[INFO] Loaded {len(self.samples)} images from styles={styles}")
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        meta = self.samples[idx]
+        img = Image.open(meta["path"]).convert("RGB")
+
+        if self.transform is not None:
+            img = self.transform(img)
+        else:
+            img = transforms.ToTensor()(img)
+
+        label = meta["label"]
+        style = meta["style"]
+
+        return img, label, style
